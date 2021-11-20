@@ -11,10 +11,11 @@ bl_info = {
 }
 
 import bpy
-from math import pi, ceil, sin, cos, copysign, sqrt
 from bpy.types import Operator
 from bpy.props import FloatProperty, IntProperty, BoolProperty
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
+from math import pi, sin, cos, copysign
+
 
 def add_screw(self, context):
 
@@ -33,38 +34,35 @@ def add_screw(self, context):
     inner_faces = self.inner_faces
     smooth_faces = self.smooth_faces
     screw = self.screw
-   
-#-- precalculate inner loop values of semi-circular profile
+
+    sink = []
+    cosk = []
+    # precalculate inner loop values of semi-circular profile (just for reference)
     # for k in range(win_segs + 1):
     #     ang = k * pi / win_segs
     #     sink.append(sin(ang) * win_rad * height)
     #     cosk.append(cos(ang) * win_rad)
 
-#-- precalculate inner loop values of versatile profile
-    sink = []
-    cosk = []
+    # precalculate inner loop values of versatile profile
     for k in range(win_segs + 1):
         ang = k * pi / win_segs
         csk = cos(ang)
         sink.append(win_rad * (sin(ang) ** power) * height)
         cosk.append(win_rad * (abs(csk) ** power) * copysign(1, csk))
 
-#-- taper option, still seeking better taper profile
+    # taper option, still seeking better taper profile
     taper_turns *= hel_segs
     min_taper = (1 - end_taper) / taper_turns
     last_seg = num_turns * hel_segs
 
-#-- define vertices
+    # define vertices
     verts = []
-    edges = []
     faces = []
     h_angle = 2 * pi / hel_segs
     win_diam = 2 * win_rad
 
-    #print("Redraw")
-
     for i in range(num_turns + 1):
-        for j in range(hel_segs): 
+        for j in range(hel_segs):
             seg = i * hel_segs + j
             if 0 <= seg <= taper_turns:
                 if seg == 0:
@@ -96,24 +94,24 @@ def add_screw(self, context):
             if i == num_turns:
                 break
 
-#-- re-centre z
+    # re-centre z
     z_offset = (vz - win_rad) / 2
     verts = [(v[0], v[1], v[2]-z_offset) for v in verts]
 
-#-- define faces
+    # define faces
     for i in range(num_turns):
 
         i_turns = i * hel_segs * (win_segs + 1)
 
         for j in range(hel_segs):
 
-            j_segs  = (win_segs + 1) * j
+            j_segs = (win_segs + 1) * j
             jj_segs = (win_segs + 1) * (j+1)
 
             for k in range(win_segs):
 
-                fa = i_turns +  j_segs + k + 1
-                fb = i_turns +  j_segs + k
+                fa = i_turns + j_segs + k + 1
+                fb = i_turns + j_segs + k
                 fc = i_turns + jj_segs + k
                 fd = i_turns + jj_segs + k + 1
                 if k == 0:
@@ -121,56 +119,60 @@ def add_screw(self, context):
                     ff = fc
                 faces.append([fa, fb, fc, fd])
 
-            if inner_faces == True:
+            if inner_faces is True:
                 faces.append([fe, fa, fd, ff])
 
-    if ngon_caps == True:
+    if ngon_caps is True:
         verts_len = len(verts)
         cap_start = [i for i in range(win_segs+1)]
         cap_end = [i for i in range(verts_len-1, verts_len-win_segs-2, -1)]
         faces.extend([cap_start, cap_end])
-        
-    if tri_caps == True:
+
+    if tri_caps is True:
         v_1st = verts[0]
         v_end = verts[-1]
         cap_vert1 = (v_1st[0], v_1st[1]-win_rad/3, v_1st[2]+win_rad)
         cap_vert2 = (v_end[0], v_end[1]+win_rad/3, v_end[2]-win_rad)
-
         verts.extend([cap_vert1, cap_vert2])
+
         verts_len = len(verts)
+
         # cap1
-        pt = verts_len-2
+        pt = verts_len - 2
         for v in range(win_segs):
             faces.append([pt, v, v+1])
-        if inner_faces == True:
+        if inner_faces is True:
             faces.append([pt, win_segs, 0])
+
         # cap2
-        pt = verts_len-1
-        for v in range(verts_len-win_segs-3, verts_len-3):
+        pt = verts_len - 1
+        v_frst = verts_len - win_segs - 3
+        v_last = verts_len - 3
+        for v in range(v_frst, v_last):
             faces.append([pt, v+1, v])
-        if inner_faces == True:
-            faces.append([pt, verts_len-win_segs-3, verts_len-3])
+        if inner_faces is True:
+            faces.append([pt, v_frst, v_last])
 
     mesh = bpy.data.meshes.new(name="Screw")
-    mesh.from_pydata(verts, edges, faces)
+    mesh.from_pydata(verts, [], faces)
 
     object_data_add(context, mesh, operator=self)
 
-#-- mode dependent
+    # mode dependent
     mode = bpy.context.mode
-    if mode =='OBJECT':
-        if smooth_faces == True:
+    if mode == 'OBJECT':
+        if smooth_faces is True:
             bpy.ops.object.shade_smooth()
-        if screw == True:
+        if screw is True:
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.remove_doubles()
             bpy.ops.object.mode_set(mode='OBJECT')
-    if mode =='EDIT':
-        if smooth_faces == True:
+    if mode == 'EDIT':
+        if smooth_faces is True:
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.shade_smooth()
             bpy.ops.object.mode_set(mode='EDIT')
-        if screw == True:
+        if screw is True:
             bpy.ops.mesh.remove_doubles()
 
 
@@ -183,7 +185,7 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
     num_turns: IntProperty(
         name="Number of turns",
         description="Number of turns",
-        min=1, max=1000,
+        min=1, max=2000,
         default=3)
     helix_radius: FloatProperty(
         name="Helix Radius",
