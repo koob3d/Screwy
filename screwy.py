@@ -14,12 +14,14 @@ import bpy
 from bpy.types import Operator
 from bpy.props import FloatProperty, IntProperty, BoolProperty
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
-from math import pi, sin, cos, copysign
+from math import pi, sin, cos, copysign, ceil
 
 
 def add_screw(self, context):
 
     num_turns = self.num_turns
+    length = self.length
+    toggle_turns = self.toggle_turns
     hel_rad = self.helix_radius
     hel_segs = self.helix_segments
     stretch = self.stretch
@@ -33,35 +35,36 @@ def add_screw(self, context):
     tri_caps = self.tri_caps
     inner_faces = self.inner_faces
     smooth_faces = self.smooth_faces
-    screw = self.screw
+    join_windings = self.join_windings
 
     sink = []
     cosk = []
-    # precalculate inner loop values of semi-circular profile (just for reference)
-    # for k in range(win_segs + 1):
-    #     ang = k * pi / win_segs
-    #     sink.append(sin(ang) * win_rad * height)
-    #     cosk.append(cos(ang) * win_rad)
+    win_diam = 2 * win_rad
 
-    # precalculate inner loop values of versatile profile
+    # Since the innermost loop is likely the smallest,
+    # precalculate inner loop values of profile
     for k in range(win_segs + 1):
         ang = k * pi / win_segs
         csk = cos(ang)
         sink.append(win_rad * (sin(ang) ** power) * height)
         cosk.append(win_rad * (abs(csk) ** power) * copysign(1, csk))
 
-    # taper option, still seeking better taper profile
+    # Define length option
+    if toggle_turns == False:
+        num_turns = int(ceil(length / win_diam))
+
+    # Taper option. TODO: sinusoid taper profile
     taper_turns *= hel_segs
     min_taper = (1 - end_taper) / taper_turns
     last_seg = num_turns * hel_segs
 
-    # define vertices
+    # Define vertices
     verts = []
     faces = []
     h_angle = 2 * pi / hel_segs
-    win_diam = 2 * win_rad
 
     for i in range(num_turns + 1):
+        
         for j in range(hel_segs):
             seg = i * hel_segs + j
             if 0 <= seg <= taper_turns:
@@ -90,15 +93,17 @@ def add_screw(self, context):
 
                 verts.append((vx, vy, vz))
 
-            # The first k-loop of num_turns+1 defines the final vertices
+            # Break after first k-loop of num_turns+1; defines the final vertices
             if i == num_turns:
                 break
 
-    # re-centre z
+    # Re-centre z
     z_offset = (vz - win_rad) / 2
     verts = [(v[0], v[1], v[2]-z_offset) for v in verts]
 
-    # define faces
+    # Define faces
+    lk_faces = []
+    in_faces = []
     for i in range(num_turns):
 
         i_turns = i * hel_segs * (win_segs + 1)
@@ -106,7 +111,7 @@ def add_screw(self, context):
         for j in range(hel_segs):
 
             j_segs = (win_segs + 1) * j
-            jj_segs = (win_segs + 1) * (j+1)
+            jj_segs = (win_segs + 1) * (j + 1)
 
             for k in range(win_segs):
 
@@ -114,25 +119,29 @@ def add_screw(self, context):
                 fb = i_turns + j_segs + k
                 fc = i_turns + jj_segs + k
                 fd = i_turns + jj_segs + k + 1
-                if k == 0:
-                    fe = fb
-                    ff = fc
                 faces.append([fa, fb, fc, fd])
+                if 0 < i < num_turns and k == 0:
+                        factor = (hel_segs - 1) * (win_segs + 1) + 1 
+                        lk_faces.append([fb, fb - factor, fc - factor, fc])
+            in_faces.append([fa - win_segs, fa, fd, fd - win_segs])
 
-            if inner_faces is True:
-                faces.append([fe, fa, fd, ff])
+    if inner_faces is True:
+        faces.extend(in_faces)
+    if join_windings is True:
+        faces.extend(lk_faces)
 
     if ngon_caps is True:
         verts_len = len(verts)
-        cap_start = [i for i in range(win_segs+1)]
-        cap_end = [i for i in range(verts_len-1, verts_len-win_segs-2, -1)]
+        cap_start = [i for i in range(win_segs + 1)]
+        cap_end = [i for i in range(verts_len - 1, verts_len - win_segs - 2, -1)]
         faces.extend([cap_start, cap_end])
 
     if tri_caps is True:
         v_1st = verts[0]
         v_end = verts[-1]
-        cap_vert1 = (v_1st[0], v_1st[1]-win_rad/3, v_1st[2]+win_rad)
-        cap_vert2 = (v_end[0], v_end[1]+win_rad/3, v_end[2]-win_rad)
+        advance = win_rad / 3
+        cap_vert1 = (v_1st[0], v_1st[1] - advance, v_1st[2] + win_rad)
+        cap_vert2 = (v_end[0], v_end[1] + advance, v_end[2] - win_rad)
         verts.extend([cap_vert1, cap_vert2])
 
         verts_len = len(verts)
@@ -158,12 +167,12 @@ def add_screw(self, context):
 
     object_data_add(context, mesh, operator=self)
 
-    # mode dependent
+    # Mode dependent
     mode = bpy.context.mode
     if mode == 'OBJECT':
         if smooth_faces is True:
             bpy.ops.object.shade_smooth()
-        if screw is True:
+        if join_windings is True:
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.remove_doubles()
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -172,7 +181,7 @@ def add_screw(self, context):
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.shade_smooth()
             bpy.ops.object.mode_set(mode='EDIT')
-        if screw is True:
+        if join_windings is True:
             bpy.ops.mesh.remove_doubles()
 
 
@@ -187,6 +196,15 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
         description="Number of turns",
         min=1, max=2000,
         default=3)
+    length: FloatProperty(
+        name="Overall length",
+        description="Overall length",
+        min=0, max=100,
+        default=1)
+    toggle_turns: BoolProperty(
+        name="Length by turns?",
+        description="Length by turns",
+        default=False)
     helix_radius: FloatProperty(
         name="Helix Radius",
         description="Helix Radius",
@@ -205,9 +223,9 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
         name="Smooth Faces",
         description="Smooth Faces",
         default=True)
-    screw: BoolProperty(
-        name="Screw",
-        description="Screw",
+    join_windings: BoolProperty(
+        name="Join Windings",
+        description="Join Windings",
         default=False)
     stretch: FloatProperty(
         name="Stretch",
@@ -265,28 +283,17 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
 def add_object_button(self, context):
     self.layout.operator(
         OBJECT_OT_add_screw.bl_idname,
-        text="Screw",
+        text="Screwy",
         icon='PLUGIN')
-
-
-# This allows you to right click on a button and link to documentation
-#def add_object_manual_map():
-#    url_manual_prefix = "https://docs.blender.org/manual/en/latest/"
-#    url_manual_mapping = (
-#        ("bpy.ops.mesh.add_screw", "scene_layout/object/types.html"),
-#    )
-#    return url_manual_prefix, url_manual_mapping
 
 
 def register():
     bpy.utils.register_class(OBJECT_OT_add_screw)
-#    bpy.utils.register_manual_map(add_object_manual_map)
     bpy.types.VIEW3D_MT_mesh_add.append(add_object_button)
 
 
 def unregister():
     bpy.utils.unregister_class(OBJECT_OT_add_screw)
-#    bpy.utils.unregister_manual_map(add_object_manual_map)
     bpy.types.VIEW3D_MT_mesh_add.remove(add_object_button)
 
 
