@@ -2,7 +2,7 @@ bl_info = {
     "name": "New Screw",
     "author": "Paul Booker",
     "version": (1, 0),
-    "blender": (2, 93, 5),
+    "blender": (2, 80, 0),
     "location": "View3D > Add > Mesh > New Screw",
     "description": "Adds a new Mesh Screw",
     "warning": "",
@@ -93,7 +93,7 @@ def add_screw(self, context):
 
                 verts.append((vx, vy, vz))
 
-            # Break after first k-loop of num_turns+1; defines the final vertices
+            # Break after first k-loop of num_turns+1, to define the final vertices
             if i == num_turns:
                 break
 
