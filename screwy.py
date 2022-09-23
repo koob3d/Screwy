@@ -3,10 +3,10 @@ bl_info = {
     "author": "Paul Booker",
     "version": (1, 0),
     "blender": (2, 80, 0),
-    "location": "View3D > Add > Mesh > New Screw",
+    "location": "View3D > Add > Mesh > Screwy",
     "description": "Adds a new Mesh Screw",
     "warning": "",
-    "wiki_url": "",
+    "wiki_url": "https://github.com/koob3d/screwy",
     "category": "Add Mesh",
 }
 
@@ -15,6 +15,26 @@ from bpy.types import Operator
 from bpy.props import FloatProperty, IntProperty, BoolProperty
 from bpy_extras.object_utils import AddObjectHelper, object_data_add
 from math import pi, sin, cos, copysign, ceil
+import bmesh
+
+
+def bmesh_spin(copies, me):
+    '''generates equally spaced copies of the mesh'''
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    angle = copies * 2 * pi / (copies + 1)
+    bmesh.ops.spin(bm,
+        geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+        angle=angle,
+        steps=copies,
+        use_merge=False,
+        use_duplicate=True,
+        axis=(0.0, 0.0, 1.0)
+    )
+    bm.normal_update()
+    bm.to_mesh(me)
+    me.update()
+    bm.free()
 
 
 def add_screw(self, context):
@@ -22,6 +42,7 @@ def add_screw(self, context):
     num_turns = self.num_turns
     length = self.length
     toggle_turns = self.toggle_turns
+    reverse_turns = self.reverse_turns
     hel_rad = self.helix_radius
     hel_segs = self.helix_segments
     stretch = self.stretch
@@ -36,6 +57,7 @@ def add_screw(self, context):
     inner_faces = self.inner_faces
     smooth_faces = self.smooth_faces
     join_windings = self.join_windings
+    copy_spin = self.copy_spin
 
     sink = []
     cosk = []
@@ -62,6 +84,8 @@ def add_screw(self, context):
     verts = []
     faces = []
     h_angle = 2 * pi / hel_segs
+    if reverse_turns:
+        h_angle *= -1
 
     for i in range(num_turns + 1):
         
@@ -93,7 +117,7 @@ def add_screw(self, context):
 
                 verts.append((vx, vy, vz))
 
-            # Break after first k-loop of num_turns+1, to define the final vertices
+            # First k-loop of num_turns+1 defines the final vertices
             if i == num_turns:
                 break
 
@@ -121,8 +145,8 @@ def add_screw(self, context):
                 fd = i_turns + jj_segs + k + 1
                 faces.append([fa, fb, fc, fd])
                 if 0 < i < num_turns and k == 0:
-                        factor = (hel_segs - 1) * (win_segs + 1) + 1 
-                        lk_faces.append([fb, fb - factor, fc - factor, fc])
+                    factor = (hel_segs - 1) * (win_segs + 1) + 1 
+                    lk_faces.append([fb, fb - factor, fc - factor, fc])
             in_faces.append([fa - win_segs, fa, fd, fd - win_segs])
 
     if inner_faces is True:
@@ -168,21 +192,37 @@ def add_screw(self, context):
     object_data_add(context, mesh, operator=self)
 
     # Mode dependent
-    mode = bpy.context.mode
+    context = bpy.context
+    mode = context.mode
+    data = context.active_object.data
+
     if mode == 'OBJECT':
-        if smooth_faces is True:
+        if reverse_turns:
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.flip_normals()
+            bpy.ops.object.mode_set(mode='OBJECT')
+        if smooth_faces:
             bpy.ops.object.shade_smooth()
-        if join_windings is True:
+        if join_windings:
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.remove_doubles()
             bpy.ops.object.mode_set(mode='OBJECT')
-    if mode == 'EDIT':
-        if smooth_faces is True:
+        if copy_spin:
+            bmesh_spin(copy_spin, data)
+
+    if mode == 'EDIT_MESH':
+        if reverse_turns:
+            bpy.ops.mesh.flip_normals()
+        if smooth_faces:
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.shade_smooth()
             bpy.ops.object.mode_set(mode='EDIT')
-        if join_windings is True:
+        if join_windings:
             bpy.ops.mesh.remove_doubles()
+        if copy_spin:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bmesh_spin(copy_spin, data)
+            bpy.ops.object.mode_set(mode='EDIT')
 
 
 class OBJECT_OT_add_screw(Operator, AddObjectHelper):
@@ -204,6 +244,10 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
     toggle_turns: BoolProperty(
         name="Length by turns?",
         description="Length by turns",
+        default=False)
+    reverse_turns: BoolProperty(
+        name="Reverse turns?",
+        description="Reverse turns",
         default=False)
     helix_radius: FloatProperty(
         name="Helix Radius",
@@ -240,8 +284,8 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
     taper_turns: FloatProperty(
         name="Taper Turns",
         description="Taper Turns",
-        min=0.01, max=20.0,
-        default=0.01) # avoid div by zero
+        min=0.001, max=20.0,
+        default=0.001) # avoid div by zero
     ngon_caps: BoolProperty(
         name="Ngon caps",
         description="Ngon caps",
@@ -270,6 +314,11 @@ class OBJECT_OT_add_screw(Operator, AddObjectHelper):
         description="Winding Profile",
         min=0.01, max=10,
         default=2)
+    copy_spin: IntProperty(
+        name="Copy and spin",
+        description="Copy and spin\n(Object mode)",
+        min=0, max=10,
+        default=0)
 
     def execute(self, context):
 
